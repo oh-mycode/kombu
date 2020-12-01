@@ -10,14 +10,19 @@ from kombu.transport import azureservicebus
 pytest.importorskip('azure.servicebus')
 
 try:
-    # azure-servicebus version >= 0.50.0
-    from azure.servicebus.control_client import Message, ServiceBusService
+    from azure.servicebus.management import \
+        ServiceBusAdministrationClient as ServiceBusService
+    from azure.servicebus import ServiceBusMessage as Message
 except ImportError:
     try:
-        # azure-servicebus version <= 0.21.1
-        from azure.servicebus import Message, ServiceBusService
+        # azure-servicebus version >= 0.50.0
+        from azure.servicebus.control_client import Message, ServiceBusService
     except ImportError:
-        ServiceBusService = Message = None
+        try:
+            # azure-servicebus version <= 0.21.1
+            from azure.servicebus import Message, ServiceBusService
+        except ImportError:
+            ServiceBusService = Message = None
 
 
 class QueueMock:
@@ -87,7 +92,7 @@ class AzureServiceBusClientMock:
         queue = self.get_queue(queue_name)
         if queue and len(queue.messages):
             return queue.messages.pop(0)
-        return Message()
+        return Message(None)
 
     def read_delete_queue_message(self, queue_name, timeout='60'):
         return self.receive_queue_message(queue_name, timeout=timeout)

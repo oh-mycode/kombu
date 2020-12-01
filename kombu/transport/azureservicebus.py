@@ -47,15 +47,23 @@ from kombu.utils.objects import cached_property
 from . import virtual
 
 try:
-    # azure-servicebus version <= 0.21.1
-    from azure.servicebus import ServiceBusService, Message, Queue
+    # azure-servicebus version >= 7.0.0
+    from azure.servicebus.management import \
+        ServiceBusAdministrationClient as ServiceBusService
+    from azure.servicebus._base_handler import ServiceBusSharedKeyCredential
+    from azure.servicebus import ServiceBusMessage as Message
 except ImportError:
+    ServiceBusSharedKeyCredential = None
     try:
-        # azure-servicebus version >= 0.50.0
-        from azure.servicebus.control_client import \
-            ServiceBusService, Message, Queue
+        # azure-servicebus version <= 0.21.1
+        from azure.servicebus import ServiceBusService, Message, Queue
     except ImportError:
-        ServiceBusService = Message = Queue = None
+        try:
+            # azure-servicebus version >= 0.50.0
+            from azure.servicebus.control_client import \
+                ServiceBusService, Message, Queue
+        except ImportError:
+            ServiceBusService = Message = Queue = None
 
 # dots are replaced by dash, all other punctuation replaced by underscore.
 CHARS_REPLACE_TABLE = {
@@ -120,6 +128,10 @@ class Channel(virtual.Channel):
         if message.body is None:
             raise Empty()
 
+        if not isinstance(message, (bytes, str)):
+            body = next(message.body)
+            return loads(bytes_to_str(body))
+
         return loads(bytes_to_str(message.body))
 
     def _size(self, queue):
@@ -144,10 +156,18 @@ class Channel(virtual.Channel):
     @property
     def queue_service(self):
         if self._queue_service is None:
-            self._queue_service = ServiceBusService(
-                service_namespace=self.conninfo.hostname,
-                shared_access_key_name=self.conninfo.userid,
-                shared_access_key_value=self.conninfo.password)
+            if ServiceBusSharedKeyCredential:
+                credential = ServiceBusSharedKeyCredential(
+                    self.conninfo.userid, self.conninfo.password
+                )
+                self._queue_service = ServiceBusService(
+                    fully_qualified_namespace=self.conninfo.hostname or '',
+                    credential=credential)
+            else:
+                self._queue_service = ServiceBusService(
+                    service_namespace=self.conninfo.hostname,
+                    shared_access_key_name=self.conninfo.userid,
+                    shared_access_key_value=self.conninfo.password)
 
         return self._queue_service
 
